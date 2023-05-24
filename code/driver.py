@@ -7,7 +7,7 @@ from junctions import add_junction_node
 from junctions import add_junction_nodes
 from segments import add_segment_node
 from segments import add_segment_nodes
-from edges import create_edges
+from edges import process_edge_connections
 
 from crimenodes import add_crime_node
 from nearestjnedges import add_nearjn_edge
@@ -78,7 +78,7 @@ def load_junctions(session, delete_old=True):
         
         print("Loading Junctions")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        add_junction_nodes(session, dr)
+        session.execute_write(add_junction_nodes, dr)
     print("Finished Junctions")
 
 def load_segments(session, delete_old=True):
@@ -90,13 +90,15 @@ def load_segments(session, delete_old=True):
             
         print("Loading Segments")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        add_segment_nodes(session, dr)
+        session.execute_write(add_segment_nodes, dr)
         print("Finished Segments")
             
-        # print("Connecting Segments To Junctions")
-        # dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        # for dict_row in dr:
-        #     create_edges(tx, dict_row)
+def connect_segment_junctions(session):
+    with open('../data/streetsegments.csv','r') as infile:
+        print("Connecting Segments To Junctions")
+        dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
+        session.execute_write(process_edge_connections, dr)
+        print("Finished Connecting Segments")
 
 def load_crimes(session):
     # Matching algorithm to create crime nodes - comparing the crime event's location to each junction of the street network.
@@ -205,8 +207,9 @@ def main():
     with driver.session() as session:
         if not session: return
         
-        load_junctions(session)
-        load_segments(session)
+        #load_junctions(session)
+        #load_segments(session)
+        connect_segment_junctions(session)
     driver.close()
       
 if __name__ == "__main__":

@@ -8,10 +8,39 @@ def add_edge(tx, segID, junctID):
     result = tx.run(query, segid=segID, junctid=junctID)
     return result
 
+def add_edges(tx, segID, junctIDs):
+    if not any(junctIDs): return
+    
+    junctMatch = "("
+    data = {"segid": segID}
+    for i, junctID in enumerate(junctIDs):
+        if junctID > 0:
+            data[f"junct_id_{i}"] = junctID
+            junctMatch += f" j.id = $junct_id_{i} OR"
+    junctMatch = junctMatch.removesuffix("OR") + ")"
+    query = f'MATCH (s:Segment), (j:Junction) WHERE s.id = $segid AND {junctMatch} CREATE (s)-[r:CONTINUES_TO]->(j)'
+    print(query)
+    print(data)
+    tx.run(query, data)
+    
+def process_edge_connections(tx, connections):
+    i=0
+    for i, connection in enumerate(connections):
+        if i >= 1 and i % 1 == 0:
+            print(f"Processed {i} connections")
+            break
+            
+        add_edges(
+            tx, 
+            connection["StreetID"], 
+            [int(connection[key]) for key in ["pseudoJunctionID1", "pseudoJunctionID2", "adjustJunctionID1", "adjustJunctionID2"]]
+        )
+    print(f"Processed {i+1} connections")
+
 #takes in a transaction and a property dict, creates edge on the neo4j database
 def create_edges(tx, dict):
     if(int(dict['PseudoJunctionCount']) > 0):
-        if(int(dict['pseudoJunctionID1']) > 0):
+        if(int(dict['pseudoJunctionID1']) > 0): 
             add_edge(tx, int(dict['StreetID']),int(dict['pseudoJunctionID1']))
         if(int(dict['pseudoJunctionID2']) > 0):
             add_edge(tx, int(dict['StreetID']),int(dict['pseudoJunctionID2']))

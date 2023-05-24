@@ -53,14 +53,13 @@ def add_segment_node(tx,dict):
     result = tx.run(query, typed_dict)
     return result
 
-def add_segment_nodes(session, nodes):
+def add_segment_nodes(tx, nodes):
     """Add the segment nodes to the database
 
     Args:
         tx (Transaction): The transaction to use
         nodes (List[Dict]): The list of nodes to add to the database
     """
-    tx = session.begin_transaction()
     data = {}
     query = 'CREATE'
     i = 0
@@ -69,9 +68,7 @@ def add_segment_nodes(session, nodes):
         # Execute the query every 500 nodes
         if i > 0 and i % 500 == 0:
             tx.run(query.strip(','), data)
-            tx.commit()
-            tx = session.begin_transaction()
-            print(f"Processed {i} nodes")
+            print(f"Processed {i} segments")
             data = {}
             query = 'CREATE'
             
@@ -90,5 +87,4 @@ def add_segment_nodes(session, nodes):
         )
     # Execute the query for any remaining nodes
     tx.run(query.strip(','), data)
-    tx.commit()
-    print(f"Processed {i} nodes")
+    print(f"Processed {i + 1} segments")
