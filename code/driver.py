@@ -1,5 +1,5 @@
 import csv
-import utm
+#import utm
 from scipy.spatial.distance import cityblock 
 from datetime import datetime as dt
 
@@ -17,9 +17,63 @@ from nearestssedges import add_nearss_edge
 from neo4j import GraphDatabase
 
 #Creating a basic session with the neo4j database
-uri = "neo4j+s://d6ab5af4.databases.neo4j.io"
-driver = GraphDatabase.driver(uri, auth=('neo4j', 'MitacsAndrewPark2022'))
-session = driver.session()
+DATABASE_INFO_FILEPATH = "E:\Environmental Backcloth\dbinfo.txt"
+
+def load_db_info(filepath):
+    """ Load database access information from a file
+    
+    The file should be one downloaded from Neo4j when creating a database
+    
+    Parameters:
+        filepath - String: The path to the file
+
+    Returns:
+        (uri, username, password): The access information if the file is valid
+        None: When the information cannot be loaded
+    """
+    
+    uri, user, password = None, None, None
+    with open(filepath) as dbinfo:
+        for line in dbinfo:
+            line = line.strip()
+            
+            # Skip lines that don't have information or where it would be invalid
+            if not "=" in line: continue
+            label, value = line.split("=")
+            if len(label) == 0 or len(value) == 0: continue
+            
+            # Set the variable that corresponds with the label
+            match label:
+                case "NEO4J_URI":
+                    uri = value
+                case "NEO4J_USERNAME":
+                    user = value
+                case "NEO4J_PASSWORD":
+                    password = value
+                    
+    if not (uri and user and password): return None
+    return (uri, user, password)
+
+def create_session():
+    """ Create a database session 
+
+    Returns:
+        Session: The connected session
+        None: If the session could not be created
+    """
+    
+    # Get the database information
+    db_info = load_db_info(DATABASE_INFO_FILEPATH)
+    if not db_info: return None
+    uri, user, password = db_info
+
+    # Connect to the database
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    session = driver.session()
+    return session
+
+session = create_session()
+if not session: exit()
 
 ##INTEGRATE THE CREATION OF THE DATABASE FROM THE OTHER LOCATIONS TOO AT THE END
 
