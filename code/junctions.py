@@ -1,18 +1,26 @@
 # Filename: junctions.py
 # Description: contains helper functions to add junction nodes to a neo4j database
 
-#takes in props dict from csv.DictReader and corrects data types of nonstring properties
-def get_typed_dict(props):
-    props['JunctionID'] = int(props['JunctionID'])
-    props['StreetIntersectCount'] = int(props['StreetIntersectCount'])
-    props['longitude'] = float(props['longitude'])
-    props['latitude'] = float(props['latitude'])
-    props['Vulnerability'] = float(props['Vulnerability'])
-    return props
+def add_node_data(data, node, i):
+    """Add the information from [node] to [data]
+    
+    The information about [node] will be added to [data] with keys ending in [i]
 
-#takes in transaction and dict objects from the driver and executes the query to add data to our database
-def add_junction_node(tx,dict):
-    typed_dict = get_typed_dict(dict)
+    Args:
+        data (Dict): The data to be added to
+        i (Any): The index of the node
+        node (Dict): The information about the node
+    """
+    data[f'JunctionID{i}'] = int(node['JunctionID'])
+    data[f'JunctionType{i}'] = node['JunctionType']
+    data[f'StreetIntersectCount{i}'] = int(node['StreetIntersectCount'])
+    data[f'longitude{i}'] = float(node['longitude'])
+    data[f'latitude{i}'] = float(node['latitude'])
+    data[f'Vulnerability{i}'] = float(node['Vulnerability'])
+
+# takes in transaction and dict objects from the driver and executes the query to add data to our database
+def add_junction_node(tx, dict):
+    typed_dict = add_node_data({}, dict, '')
     print('adding Junction node')
     print(typed_dict)
     print('--------\n\n')
@@ -20,19 +28,33 @@ def add_junction_node(tx,dict):
     result = tx.run(query, typed_dict)
     return result
 
-def add_node_data(data, i, node):
-    data[f'JunctionID_{i}'] = int(node['JunctionID'])
-    data[f'JunctionType_{i}'] = node['JunctionType']
-    data[f'StreetIntersectCount_{i}'] = int(node['StreetIntersectCount'])
-    data[f'longitude_{i}'] = float(node['longitude'])
-    data[f'latitude_{i}'] = float(node['latitude'])
-    data[f'Vulnerability_{i}'] = float(node['Vulnerability'])
+def add_junction_nodes(session, nodes):
+    """Add the junction nodes to the database
 
-def add_junction_nodes(tx, nodes):
+    Args:
+        tx (Transaction): The transaction to use
+        nodes (List[Dict]): The list of nodes to add to the database
+    """
+    tx = session.begin_transaction()
     data = {}
     query = 'CREATE'
+    i = 0
+    
     for i, node in enumerate(nodes):
-        add_node_data(data, i, node)
-        query += f" (:Junction {{id: $JunctionID_{i}, type: $JunctionType_{i}, street_count: $StreetIntersectCount_{i}, latitude: $latitude_{i}, longitude: $longitude_{i}, vulnerability_score: $Vulnerability_{i}}})," 
-    query = query.strip(',')
-    tx.run(query, data)
+        # Execute the query every 1000 nodes
+        if i > 0 and i % 1000 == 0:
+            tx.run(query.strip(','), data)
+            tx.commit()
+            tx = session.begin_transaction()
+            print(f"Processed {i} nodes")
+            data = {}
+            query = 'CREATE'
+            
+        # Add node information to the query and data
+        add_node_data(data, node, i)
+        query += f" (:Junction {{id: $JunctionID{i}, type: $JunctionType{i}, street_count: $StreetIntersectCount{i}, latitude: $latitude{i}, longitude: $longitude{i}, vulnerability_score: $Vulnerability{i}}})," 
+    
+    # Execute the query for any remaining nodes
+    tx.run(query.strip(','), data)
+    tx.commit()
+    print(f"Processed {i} nodes")

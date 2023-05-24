@@ -6,6 +6,7 @@ from datetime import datetime as dt
 from junctions import add_junction_node
 from junctions import add_junction_nodes
 from segments import add_segment_node
+from segments import add_segment_nodes
 from edges import create_edges
 
 from crimenodes import add_crime_node
@@ -56,14 +57,7 @@ def load_db_info(filepath):
     if not (uri and user and password): return None
     return (uri, user, password)
 
-def create_session():
-    """ Create a database session 
-
-    Returns:
-        Session: The connected session
-        None: If the session could not be created
-    """
-    
+def create_driver():
     # Get the database information
     db_info = load_db_info(DATABASE_INFO_FILEPATH)
     if not db_info: return None
@@ -71,35 +65,38 @@ def create_session():
 
     # Connect to the database
     driver = GraphDatabase.driver(uri, auth=(user, password))
-    session = driver.session()
-    return session
+    return driver
 
 ## INTEGRATE THE CREATION OF THE DATABASE FROM THE OTHER LOCATIONS TOO AT THE END
 
-def load_junctions(session):
+def load_junctions(session, delete_old=True):
     # Loop to create junction nodes
-    with open('../data/junctions.csv','r') as infile, session.begin_transaction() as tx:
+    with open('../data/junctions.csv','r') as infile:
+        # Remove any previous junctions
+        if delete_old:
+            session.execute_write(lambda tx: tx.run("MATCH (j:Junction) DETACH DELETE j"))
+        
         print("Loading Junctions")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        add_junction_nodes(tx, dr)
-        # for dict_row in dr:
-        #     add_junction_node(tx, dict_row)
-    tx.close()
+        add_junction_nodes(session, dr)
     print("Finished Junctions")
 
-def load_segments(session):
+def load_segments(session, delete_old=True):
     # Loop to create segment nodes and relationship
-    with open('../data/streetsegments.csv','r') as infile, session.begin_transaction() as tx:
+    with open('../data/streetsegments.csv','r') as infile:
+        # Remove any previous segments
+        if delete_old:
+            session.execute_write(lambda tx: tx.run("MATCH (s:Segment) DETACH DELETE s"))
+            
         print("Loading Segments")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        for dict_row in dr:
-            add_segment_node(tx, dict_row)
+        add_segment_nodes(session, dr)
+        print("Finished Segments")
             
-        print("Connecting Segments To Junctions")
-        dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
-        for dict_row in dr:
-            create_edges(tx, dict_row)
-    tx.close()
+        # print("Connecting Segments To Junctions")
+        # dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
+        # for dict_row in dr:
+        #     create_edges(tx, dict_row)
 
 def load_crimes(session):
     # Matching algorithm to create crime nodes - comparing the crime event's location to each junction of the street network.
@@ -202,12 +199,15 @@ def load_transit(session):
     tx.close()
   
 def main():
-    session = create_session()
-    if not session: return
+    driver = create_driver()
+    if not driver: return
     
-    load_junctions(session)
-    #load_segments(session)
-    session.close()
+    with driver.session() as session:
+        if not session: return
+        
+        load_junctions(session)
+        load_segments(session)
+    driver.close()
       
 if __name__ == "__main__":
     main()
