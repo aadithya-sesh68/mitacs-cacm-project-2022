@@ -1,16 +1,13 @@
 import csv
 import utm
 from scipy.spatial.distance import cityblock 
-from datetime import datetime as dt
 
 from junctions import add_junction_nodes
 from segments import add_segment_nodes
 from edges import process_edge_connections
 
-from crimenodes import add_crime_node
-from nearestjnedges import add_nearjn_edge
+from crimenodes import add_crime_with_junction
 
-from transitnodes import add_transit_node
 from nearestssedges import add_nearss_edge
 
 from neo4j import GraphDatabase
@@ -20,6 +17,14 @@ DATABASE_INFO_FILEPATH = r"E:\Environmental Backcloth\dbinfo.txt"
 
 ZONE_NUMBER = 10
 ZONE_LETTER = 'U'
+
+
+# Helper Functions
+def create_regular_str(old_str):
+    if not old_str.isnumeric(): return old_str
+    return old_str if int(old_str)>9 else "0"+old_str
+
+# Database Setup
 
 def load_db_info(filepath):
     """ Load database access information from a file
@@ -66,7 +71,7 @@ def create_driver():
     driver = GraphDatabase.driver(uri, auth=(user, password))
     return driver
 
-## INTEGRATE THE CREATION OF THE DATABASE FROM THE OTHER LOCATIONS TOO AT THE END
+## Data Loading
 
 def load_junctions(session, delete_old=True):
     # Loop to create junction nodes
@@ -92,7 +97,11 @@ def load_segments(session, delete_old=True):
         session.execute_write(add_segment_nodes, dr)
         print("Finished Segments")
             
-def connect_segment_junctions(session):
+def connect_segment_junctions(session, delete_old=True):
+    # Remove any previous connections
+    if delete_old:
+        session.execute_write(lambda tx: tx.run("MATCH ()-[c:CONTINUES_TO]->() DELETE c"))
+    
     with open('../data/streetsegments.csv','r') as infile:
         print("Connecting Segments To Junctions")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
@@ -100,63 +109,73 @@ def connect_segment_junctions(session):
         print("Finished Connecting Segments")
 
 def load_crimes(session):
+    # Load the junctions
+    junctions = []
+    with open('../data/junctions.csv', 'r') as jcsvinput:
+        jdr = csv.DictReader(jcsvinput,quoting=csv.QUOTE_MINIMAL)
+        for jdict_row in jdr:
+            junctionll=[float(jdict_row["latitude"]),float(jdict_row["longitude"])]
+            junctions.append(
+                {
+                    "id": jdict_row["JunctionID"],
+                    "latlon": junctionll
+                }
+            )
+    
     # Matching algorithm to create crime nodes - comparing the crime event's location to each junction of the street network.
     crimell=[]
     junctionll=[]
 
+    # Open the crime data
     with open('../data/vanc_crime_2022.csv','r') as ccsvinput, session.begin_transaction() as tx:
         print("---------------- Looping through crime data -----------------")
         crime_id=0
         mindist=0
         jid=0
         cdr = csv.DictReader(ccsvinput,quoting=csv.QUOTE_MINIMAL)
+        
+        # Loop over each crime
         for cdict_row in cdr:
-            crime_id+=1
-            mindist=999.99 # Should maybe be changed to float('inf')
+            crime_id+=1 # Create an id for the crime
+            mindist=float('inf')
+            
             crimedict={}
             nearjndict={}
+            
+            # Determine the location of the crime
             res = utm.to_latlon(float(cdict_row["X"]), float(cdict_row["Y"]), ZONE_NUMBER, ZONE_LETTER)
             crimell = [res[0], res[1]]
             
-            # Find the closes junction
-            with open('../data/junctions.csv', 'r') as jcsvinput:
-                jdr = csv.DictReader(jcsvinput,quoting=csv.QUOTE_MINIMAL)
-                for jdict_row in jdr:
-                    junctionll=[float(jdict_row["latitude"]),float(jdict_row["longitude"])]
-                    distval = cityblock(crimell,junctionll) #using Manhattan distance to calculate the distance b/w 2 locations in vancouver
-                    if(distval<mindist):
-                        mindist=distval
-                        jid = jdict_row["JunctionID"]
+            # Find the closest junction
+            for junction in junctions:
+                distval = cityblock(crimell, junction["latlon"]) #using Manhattan distance to calculate the distance b/w 2 locations in vancouver
+                
+                # Update the closest junction
+                if(distval<mindist):
+                    mindist=distval
+                    jid = junction["id"]
                         
-                #Assigning the properties of the Nearest_Junction_To relationship
-                nearjndict["distance"]=mindist
-                nearjndict["crime_id"]=str(crime_id)
-                nearjndict["junction_id"]=jid
+            # Assigning the properties of the Nearest_Junction_To relationship
+            nearjndict["distance"]=mindist
+            nearjndict["crime_id"]=str(crime_id)
+            nearjndict["junction_id"]=jid
 
-            #Assigning the properties of the Crime node
+            # Assigning the properties of the Crime node
             crimedict["crime_id"]=str(crime_id)
             crimedict["type_of_crime"]=cdict_row["TYPE"]
-
-            tempmonth = cdict_row["MONTH"] if int(cdict_row["MONTH"])>9 else "0"+str(cdict_row["MONTH"])
-            tempday = cdict_row["DAY"] if int(cdict_row["DAY"])>9 else "0"+str(cdict_row["DAY"])
-            crimedict["date_of_crime"]=cdict_row["YEAR"]+"-"+tempmonth+"-"+tempday
-
-            temphour = cdict_row["HOUR"] if int(cdict_row["HOUR"])>9 else "0"+cdict_row["HOUR"]
-            tempmin = cdict_row["MINUTE"] if int(cdict_row["MINUTE"])>9 else "0"+cdict_row["MINUTE"]
-            crimedict["time_of_crime"]=temphour+":"+tempmin
+            
+            crimedict["date_of_crime"]=f"{cdict_row['YEAR']}-{create_regular_str(cdict_row['MONTH'])}-{create_regular_str(cdict_row['DAY'])}"
+            crimedict["time_of_crime"]=f"{create_regular_str(cdict_row['HOUR'])}:{create_regular_str(cdict_row['MINUTE'])}"
 
             crimedict["hundred_block"]=cdict_row["HUNDRED_BLOCK"]
             crimedict["latitude"]=crimell[0]
             crimedict["longitude"]=crimell[1]
             crimedict["recency"]=cdict_row["RECENCY"]
             
-            #add_crime_node(tx,crimedict) #Adding the crime node
-            add_nearjn_edge(tx,nearjndict) #Adding the corresponding relationship b/w crime & junction
+            add_crime_with_junction(tx, crimedict, nearjndict)
+            if crime_id % 200 == 0:
+                print(f"Processed {crime_id} crimes")
     tx.close()
-
-# SOURCE NODE: Transit
-# RELATIONSHIP: Present_In
-# TARGET NODE : Segment
 
 def load_transit(session):
     # Matching algorithm to create public transit nodes - comparing the bus station's location to each street segment of the network
@@ -208,7 +227,8 @@ def main():
         
         #load_junctions(session)
         #load_segments(session)
-        connect_segment_junctions(session)
+        #connect_segment_junctions(session)
+        load_crimes(session)
     driver.close()
       
 if __name__ == "__main__":
