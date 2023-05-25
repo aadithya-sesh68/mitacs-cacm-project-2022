@@ -1,7 +1,8 @@
 
 # Graph Network Backcloth Visualizer
 
-This is carried out as a part of the MITACS Globalink Research Internship 2022 @ 
+This work is part of a research project for Summer 2023
+This is an extension of the work carried out as a part of the MITACS Globalink Research Internship 2022 @ 
 British Columbia, Canada.
 
 The project aims to simulate the street networks of the city of Vancouver, and 
@@ -22,3 +23,11 @@ susceptibility of a street segment or junction to crime.
 ![App Screenshot](https://i.imgur.com/ISKksp2.png)
 
 ![App Screenshot](https://i.imgur.com/X6tyhVn.png)
+
+## Setup
+
+In order to setup the project on a new system:
+1. Create a Neo4j account and database making sure to download the file that includes the database password
+2. Change DATABASE_INFO_FILEPATH in driver.py to point to the downloaded database info file
+3. From the code folder run pip install -r requirements.txt
+4. From the code folder run python driver.py to load the data into the database. This could take a while.
