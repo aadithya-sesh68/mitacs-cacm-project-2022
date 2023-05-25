@@ -8,7 +8,7 @@ from edges import process_edge_connections
 
 from crimenodes import add_crime_with_junction
 
-from nearestssedges import add_nearss_edge
+from transitnodes import add_transit_node_with_segment
 
 from neo4j import GraphDatabase
 
@@ -83,7 +83,8 @@ def load_junctions(session, delete_old=True):
         print("Loading Junctions")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
         session.execute_write(add_junction_nodes, dr)
-    print("Finished Junctions")
+        print("Finished Loading Junctions")
+        print()
 
 def load_segments(session, delete_old=True):
     # Loop to create segment nodes and relationship
@@ -95,7 +96,8 @@ def load_segments(session, delete_old=True):
         print("Loading Segments")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
         session.execute_write(add_segment_nodes, dr)
-        print("Finished Segments")
+        print("Finished Loading Segments")
+        print()
             
 def connect_segment_junctions(session, delete_old=True):
     # Remove any previous connections
@@ -107,8 +109,15 @@ def connect_segment_junctions(session, delete_old=True):
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
         session.execute_write(process_edge_connections, dr)
         print("Finished Connecting Segments")
+        print()
 
-def load_crimes(session):
+def load_crimes(session, delete_old=True):
+    print("Loading Crimes")
+    
+    # Delete old crime nodes
+    if delete_old:
+        session.execute_write(lambda tx: tx.run("MATCH (c: Crime) DETACH DELETE c"))
+    
     # Load the junctions
     junctions = []
     with open('../data/junctions.csv', 'r') as jcsvinput:
@@ -128,7 +137,6 @@ def load_crimes(session):
 
     # Open the crime data
     with open('../data/vanc_crime_2022.csv','r') as ccsvinput, session.begin_transaction() as tx:
-        print("---------------- Looping through crime data -----------------")
         crime_id=0
         mindist=0
         jid=0
@@ -176,8 +184,29 @@ def load_crimes(session):
             if crime_id % 200 == 0:
                 print(f"Processed {crime_id} crimes")
     tx.close()
+    print("Finished Loading Crimes")
+    print()
 
-def load_transit(session):
+def load_transit(session, delete_old=True):
+    print("Loading Transit Stations")
+    
+    # Delete old transit nodes
+    if delete_old:
+        session.execute_write(lambda tx: tx.run("MATCH (t: Transit) DETACH DELETE t"))
+    
+    # Load the steet segments
+    segments = []
+    with open('../data/streetsegments.csv', 'r') as sscsvinput:
+        ssdr = csv.DictReader(sscsvinput,quoting=csv.QUOTE_MINIMAL)
+        for ss_row in ssdr:
+            streetll=[float(ss_row["latitude"]),float(ss_row["longitude"])]
+            segments.append(
+                {
+                    "id": ss_row["StreetID"],
+                    "latlon": streetll
+                }
+            )
+            
     # Matching algorithm to create public transit nodes - comparing the bus station's location to each street segment of the network
     translinkll=[]
     streetll=[]
@@ -187,24 +216,25 @@ def load_transit(session):
         print("---------------- Looping through Translink Public Transit data -----------------")
         minsdist=0
         ssid=0
+        counter=0
         ptdr = csv.DictReader(stopscsvinput,quoting=csv.QUOTE_MINIMAL)
         for bus_row in ptdr:
-            minsdist=999.99 # Should probably be float('inf')
+            counter += 1
+            minsdist=float('inf')
             transitdict={}
             nearstrsegdict={}
             translinkll=[float(bus_row["stop_lat"]),float(bus_row["stop_lon"])]
-            with open('../data/streetsegments.csv', 'r') as sscsvinput:
-                ssdr = csv.DictReader(sscsvinput,quoting=csv.QUOTE_MINIMAL)
-                for ss_row in ssdr:
-                    streetll=[float(ss_row["latitude"]), float(ss_row["longitude"])]
-                    distval = cityblock(translinkll,streetll) #using Manhattan distance to calculate the distance b/w 2 locations in vancouver
-                    if(distval<minsdist):
-                        minsdist=distval
-                        ssid = ss_row["StreetID"]
-                #Assigning the properties of the Present_In relationship
-                nearstrsegdict["distance"]=minsdist
-                nearstrsegdict["stop_id"]=bus_row["stop_id"]
-                nearstrsegdict["street_id"]=ssid
+
+            for segment in segments:
+                distval = cityblock(translinkll,segment["latlon"]) #using Manhattan distance to calculate the distance b/w 2 locations in vancouver
+                if(distval<minsdist):
+                    minsdist=distval
+                    ssid = segment["id"]
+                    
+            #Assigning the properties of the Present_In relationship
+            nearstrsegdict["distance"]=minsdist
+            nearstrsegdict["stop_id"]=bus_row["stop_id"]
+            nearstrsegdict["street_id"]=ssid
             
             #Assigning the properties of Public Transit Node
             transitdict["stop_code"] = bus_row["stop_code"]
@@ -214,9 +244,12 @@ def load_transit(session):
             transitdict["longitude"] = bus_row["stop_lon"]
             transitdict["zone_id"] = bus_row["zone_id"]
 
-            #add_transit_node(tx,transitdict)
-            add_nearss_edge(tx,nearstrsegdict)
+            add_transit_node_with_segment(tx, transitdict, nearstrsegdict)
+            if counter % 200 == 0:
+                print(f"Processed {counter} transit stations")
     tx.close()
+    print("Finished Loading Transit Stations")
+    print()
   
 def main():
     driver = create_driver()
@@ -225,10 +258,15 @@ def main():
     with driver.session() as session:
         if not session: return
         
+        print("Beginning Loading Data")
+        print()
         #load_junctions(session)
         #load_segments(session)
         #connect_segment_junctions(session)
-        load_crimes(session)
+        #load_crimes(session)
+        load_transit(session)
+        print("Finished Loading Data")
+        
     driver.close()
       
 if __name__ == "__main__":

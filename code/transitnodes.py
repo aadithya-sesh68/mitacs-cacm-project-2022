@@ -18,3 +18,24 @@ def add_transit_node(tx,transitdict):
     query = 'CREATE(node: Transit {stop_id: $stop_id, latitude: $latitude, longitude: $longitude, stop_code: $stop_code, stop_name: $stop_name, zone_id: $zone_id}) RETURN node'
     result = tx.run(query, typed_dict)
     return result
+
+def setup_data_dict(transit_data, near_seg_data):
+    data = {}
+    data['stop_id'] = int(transit_data['stop_id'])
+    data['latitude'] = float(transit_data['latitude'])
+    data['longitude'] = float(transit_data['longitude'])
+    data['stop_code'] = int(transit_data['stop_code'])
+    data['stop_name'] = transit_data['stop_name']
+    data['zone_id'] = transit_data['zone_id']
+    data['street_id'] = int(near_seg_data['street_id'])
+    data['distance'] = near_seg_data['distance']
+    return data
+
+def add_transit_node_with_segment(tx, transit_data, near_seg_data):
+    query = (
+        "MATCH (s:Segment {id: $street_id})"
+        "CREATE (t:Transit {stop_id: $stop_id, latitude: $latitude, longitude: $longitude, stop_code: $stop_code,"
+        "stop_name: $stop_name, zone_id: $zone_id})"
+        "-[r:PRESENT_IN {distance: $distance, stop_id: $stop_id, street_id: $street_id}]->(s)"
+    )
+    tx.run(query, setup_data_dict(transit_data, near_seg_data))
