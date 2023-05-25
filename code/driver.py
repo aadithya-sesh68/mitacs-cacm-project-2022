@@ -3,9 +3,7 @@ import utm
 from scipy.spatial.distance import cityblock 
 from datetime import datetime as dt
 
-from junctions import add_junction_node
 from junctions import add_junction_nodes
-from segments import add_segment_node
 from segments import add_segment_nodes
 from edges import process_edge_connections
 
@@ -17,6 +15,7 @@ from nearestssedges import add_nearss_edge
 
 from neo4j import GraphDatabase
 
+# Change this to point to the directory of your database information
 DATABASE_INFO_FILEPATH = r"E:\Environmental Backcloth\dbinfo.txt"
 
 ZONE_NUMBER = 10
