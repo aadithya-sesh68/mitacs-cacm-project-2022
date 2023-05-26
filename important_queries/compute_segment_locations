@@ -1,0 +1,10 @@
+// Compute the latitude and longitude of street segments based on the average
+// of the coordinates of the connected junctions
+
+MATCH (s:Segment)
+CALL {
+    WITH s
+    MATCH (s)-[:CONTINUES_TO]->(j:Junction)
+    RETURN avg(j.latitude) as lat, avg(j.longitude) as lon 
+}
+SET s.latitude=lat, s.longitude=lon
