@@ -18,6 +18,11 @@ DATABASE_INFO_FILEPATH = r"E:\Environmental Backcloth\dbinfo.txt"
 ZONE_NUMBER = 10
 ZONE_LETTER = 'U'
 
+JUNCTION_FILE = '../data/junctions.csv'
+SEGMENT_FILE = '../data/streetsegments_new.csv'
+CRIME_FILE = '../data/vanc_crime_2022.csv'
+TRANSIT_FILE = '../data/transitstops.csv'
+
 
 # Helper Functions
 def create_regular_str(old_str):
@@ -75,7 +80,7 @@ def create_driver():
 
 def load_junctions(session, delete_old=True):
     # Loop to create junction nodes
-    with open('../data/junctions.csv','r') as infile:
+    with open(JUNCTION_FILE,'r') as infile:
         # Remove any previous junctions
         if delete_old:
             session.execute_write(lambda tx: tx.run("MATCH (j:Junction) DETACH DELETE j"))
@@ -88,7 +93,7 @@ def load_junctions(session, delete_old=True):
 
 def load_segments(session, delete_old=True):
     # Loop to create segment nodes and relationship
-    with open('../data/streetsegments.csv','r') as infile:
+    with open(SEGMENT_FILE,'r') as infile:
         # Remove any previous segments
         if delete_old:
             session.execute_write(lambda tx: tx.run("MATCH (s:Segment) DETACH DELETE s"))
@@ -104,7 +109,7 @@ def connect_segment_junctions(session, delete_old=True):
     if delete_old:
         session.execute_write(lambda tx: tx.run("MATCH ()-[c:CONTINUES_TO]->() DELETE c"))
     
-    with open('../data/streetsegments.csv','r') as infile:
+    with open(SEGMENT_FILE,'r') as infile:
         print("Connecting Segments To Junctions")
         dr = csv.DictReader(infile, quoting=csv.QUOTE_MINIMAL)
         session.execute_write(process_edge_connections, dr)
@@ -120,7 +125,7 @@ def load_crimes(session, delete_old=True):
     
     # Load the junctions
     junctions = []
-    with open('../data/junctions.csv', 'r') as jcsvinput:
+    with open(JUNCTION_FILE, 'r') as jcsvinput:
         jdr = csv.DictReader(jcsvinput,quoting=csv.QUOTE_MINIMAL)
         for jdict_row in jdr:
             junctionll=[float(jdict_row["latitude"]),float(jdict_row["longitude"])]
@@ -136,7 +141,7 @@ def load_crimes(session, delete_old=True):
     junctionll=[]
 
     # Open the crime data
-    with open('../data/vanc_crime_2022.csv','r') as ccsvinput, session.begin_transaction() as tx:
+    with open(CRIME_FILE,'r') as ccsvinput, session.begin_transaction() as tx:
         crime_id=0
         mindist=0
         jid=0
@@ -196,7 +201,7 @@ def load_transit(session, delete_old=True):
     
     # Load the steet segments
     segments = []
-    with open('../data/streetsegments.csv', 'r') as sscsvinput:
+    with open(SEGMENT_FILE, 'r') as sscsvinput:
         ssdr = csv.DictReader(sscsvinput,quoting=csv.QUOTE_MINIMAL)
         for ss_row in ssdr:
             streetll=[float(ss_row["latitude"]),float(ss_row["longitude"])]
@@ -212,7 +217,7 @@ def load_transit(session, delete_old=True):
     streetll=[]
 
     #For every (lat,long) of public transit, iterate through the (lat,long) of every street to find the closest street segment in which the translink station could be present.
-    with open('../data/transitstops.csv','r') as stopscsvinput, session.begin_transaction() as tx:
+    with open(TRANSIT_FILE,'r') as stopscsvinput, session.begin_transaction() as tx:
         print("---------------- Looping through Translink Public Transit data -----------------")
         minsdist=0
         ssid=0
