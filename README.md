@@ -29,5 +29,5 @@ susceptibility of a street segment or junction to crime.
 In order to setup the project on a new system:
 1. Create a Neo4j account and database making sure to download the file that includes the database password
 2. Change DATABASE_INFO_FILEPATH in driver.py to point to the downloaded database info file
-3. From the code folder run pip install -r requirements.txt
-4. From the code folder run python driver.py to load the data into the database. This could take a while.
+3. From the data_loading folder run pip install -r requirements.txt
+4. From the data_loading folder run python driver.py to load the data into the database. This could take a while.
