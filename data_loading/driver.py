@@ -265,10 +265,10 @@ def main():
         
         print("Beginning Loading Data")
         print()
-        #load_junctions(session)
-        #load_segments(session)
-        #connect_segment_junctions(session)
-        #load_crimes(session)
+        load_junctions(session)
+        load_segments(session)
+        connect_segment_junctions(session)
+        load_crimes(session)
         load_transit(session)
         print("Finished Loading Data")
         
