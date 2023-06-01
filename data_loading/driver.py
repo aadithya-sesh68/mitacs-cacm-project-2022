@@ -116,6 +116,22 @@ def connect_segment_junctions(session, delete_old=True):
         print("Finished Connecting Segments")
         print()
 
+def connect_junctions(session):
+    print("Connecting junctions together")
+    session.execute_write(lambda tx: tx.run(
+        '''
+        MATCH (s:Segment)
+        CALL {
+            WITH s
+            MATCH (j1:Junction)<-[:CONTINUES_TO]-(s)-[:CONTINUES_TO]->(j2:Junction)
+            WITH j1, j2, s LIMIT 1
+            CREATE (j1)-[c:CONNECTS_TO]->(j2)
+            SET c = properties(s)
+        }
+        '''
+    ))
+    print("Finished connecting junctions")
+
 def load_crimes(session, delete_old=True):
     print("Loading Crimes")
     
@@ -265,11 +281,12 @@ def main():
         
         print("Beginning Loading Data")
         print()
-        load_junctions(session)
-        load_segments(session)
-        connect_segment_junctions(session)
-        load_crimes(session)
-        load_transit(session)
+        #load_junctions(session)
+        #load_segments(session)
+        #connect_segment_junctions(session)
+        connect_junctions(session)
+        #load_crimes(session)
+        #load_transit(session)
         print("Finished Loading Data")
         
     driver.close()
