@@ -3,7 +3,7 @@ button=html`<button class="btn btn-primary">Open Street View</button>`
 ```
 
 ``` js
-mapHolder=html`<div style='height:700px;'></div>`
+mapHolder=html`<div style='height:700px; background-color: white;'></div>`
 ```
 
 ``` js
@@ -20,6 +20,7 @@ button.onclick = function () {
   
   //Fetching the properties of the node selected
   let selectedNodes = view.getVisibleNodes().filter(n=>view.getNodeStyles(n.id).selected)
+  if (selectedNodes.length == 0) return;
   
   let selectedNode = selectedNodes[0].properties
   let position = {lng: selectedNode["longitude"], lat: selectedNode["latitude"]}
