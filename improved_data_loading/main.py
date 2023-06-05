@@ -9,7 +9,7 @@ from loader import RowFunction
 # Change this to point to the directory of your database information
 DATABASE_INFO_FILEPATH = r"E:\Environmental Backcloth\dbinfo.txt"
 
-JUNCTION_FILE = 'data/junctions.csv'
+JUNCTION_FILE = '../data/junctions.csv'
 SEGMENT_FILE = '../data/streetsegments_new.csv'
 CRIME_FILE = '../data/vanc_crime_2022.csv'
 TRANSIT_FILE = '../data/transitstops.csv'
@@ -79,6 +79,8 @@ def create_driver():
 # Data Loading
 
 def load_junctions(loader: GraphLoader):
+    print("Loading Junctions")
+    
     junctionData = loader.load_file(
         JUNCTION_FILE, 
         {
@@ -92,27 +94,29 @@ def load_junctions(loader: GraphLoader):
     )
     
     junctions = loader.define_category(
-        "Junction",
+        "Junction_0",
         junctionData,
         [
             'id',
             'type',
-            'street_count'
+            'street_count',
             'longitude',
             'latitude',
             'vulnerability_score',
         ]
-    ),
+    )
     
+    print("Loaded Junctions")
     return junctionData, junctions
 
 def load_segments(loader: GraphLoader):
+    print("Loading Segments")
     segmentData = loader.load_file(
         SEGMENT_FILE, 
         {
             'id': (int, "StreetID"),
             'hblock': str,
-            'type': (str, "StreetType"),
+            'type': (str, "streetType"),
             'property_count': (convert_if_not_null, "PropertyCount"),
             'PseudoJunctionCount': int,
             'pseudoJunctionID1': int,
@@ -150,7 +154,7 @@ def load_segments(loader: GraphLoader):
     )
     
     segments = loader.define_category(
-        "Segment",
+        "Segment_0",
         segmentData,
         [
             'id',
@@ -179,9 +183,13 @@ def load_segments(loader: GraphLoader):
         ]
     )
     
+    print("Loaded Segments")
+    
     return segmentData, segments
 
 def load_transit(loader: GraphLoader, segment_data):
+    print("Loading Transit")
+    
     transit_data = loader.load_file(
         TRANSIT_FILE, 
         {
@@ -204,7 +212,7 @@ def load_transit(loader: GraphLoader, segment_data):
     )
     
     transit = loader.define_category(
-        "Transit",
+        "Transit_0",
         transit_data,
         [
             "stop_id",
@@ -216,9 +224,12 @@ def load_transit(loader: GraphLoader, segment_data):
         ]
     )
     
+    print("Loaded Transit")
     return transit_data, transit
 
 def load_crimes(loader: GraphLoader, junction_data):
+    print("Loading Crimes")
+    
     crime_data = loader.load_file(
         CRIME_FILE,
         {
@@ -243,7 +254,7 @@ def load_crimes(loader: GraphLoader, junction_data):
     ),
     
     crimes = loader.define_category(
-        'Crime',
+        'Crime_0',
         crime_data,
         [
             'crime_id',
@@ -257,26 +268,27 @@ def load_crimes(loader: GraphLoader, junction_data):
         ]
     )
     
+    print("Loaded Crimes")
     return crime_data, crimes
 
 def load_data(session):
     loader = GraphLoader(session)
     
+    print("Loading Data")
     junction_data, junctions = load_junctions(loader)
-    print(loader._loaded_data)
-    # segment_data, segments = load_segments(loader)
+    segment_data, segments = load_segments(loader)
     # transit_data, transit = load_transit(loader, segment_data)
     # crime_data, crimes = load_crimes(loader, junction_data)
     
-    # continues_to = loader.define_relation(
-    #     "CONTINUES_TO",
-    #     segments,
-    #     junctions,
-    #     ("id", "neighbors", "id") 
-    # )
+    continues_to = loader.define_relation(
+        "CONTINUES_TO_0",
+        segments,
+        junctions,
+        ("id", "neighbors", "id") 
+    )
     
     # present_in = loader.define_relation(
-    #     'PRESENT_IN',
+    #     'PRESENT_IN_0',
     #     transit,
     #     segments,
     #     ('stop_id', 'street_id', 'id'),
@@ -284,19 +296,27 @@ def load_data(session):
     # )
     
     # nearest_crime_jn = loader.define_relation(
-    #     'NEAREST_CRIME_JN',
+    #     'NEAREST_CRIME_JN_0',
     #     crimes,
     #     junctions,
     #     ('crime_id', 'junction_id', 'id'),
     #     props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
     # )
     
-    # loader.write_category(junctions)
-    # loader.write_category(segments)
-    # loader.write_category(transit)
-    # loader.write_category(crimes)
+    print("Writing Data")
+    loader.write_category(junctions)
+    print("Wrote Junctions")
     
-    # loader.write_relation(continues_to)
+    loader.write_category(segments)
+    print("Wrote Segments")
+    
+    # loader.write_category(transit)    
+    # print("Wrote Transit")
+    
+    # loader.write_category(crimes)
+    # print("Wrote Crimes")
+    
+    loader.write_relation(continues_to)
     # loader.write_relation(present_in)
     # loader.write_relation(nearest_crime_jn)
     

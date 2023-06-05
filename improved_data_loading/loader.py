@@ -87,7 +87,6 @@ class GraphLoader:
             
             # Read each row
             for i, row in enumerate(rows):
-                if i == 2: break
                 # Apply the conversion to the row to get a result
                 result = { 
                     key: conversions[key](row, i) for key in conversions
@@ -189,21 +188,20 @@ class GraphLoader:
         value_matcher = category["value_matcher"]
         properties = self._match_values(data, value_matcher)
 
-        query = """
-        UNWIND $properties AS props
-        CALL {
-            WITH props
-            CREATE (n:$category_name)
-            SET n = props
-        } IN TRANSACTIONS
-        """
+        # Should be a literal string, not an f-string but this was the only way I could find to set the category
+        query = (
+        f"UNWIND $properties AS props "
+        f'CALL {{'
+        f'    WITH props '
+        f'    CREATE (n: {category["name"]}) '
+        f'    SET n = properties(props) '
+        f'}} IN TRANSACTIONS'
+        )
 
+        # Execute the query
         self._session.run(
-            query, 
-            {
-                "category_name": category["name"],
-                "properties": properties
-            }
+            query,                      # type: ignore
+            properties = properties
         )
 
     def write_relation(self, relation_handle):
@@ -223,7 +221,9 @@ class GraphLoader:
              [
                 row[data_1_key],
                 row[data_match],
-                [row[prop] for prop in props]
+                { 
+                 (prop[0] if type(prop) == tuple else prop): (row[prop[1]] if type(prop) == tuple else row[prop]) for prop in props 
+                }
              ]
              for row in data_1
         ]
@@ -233,24 +233,21 @@ class GraphLoader:
         compare = "IN" if type(data_1[0][data_match]) == list else "="
         where_2 = f"WHERE n2.{data_2_key} {compare} row[1]"
 
-        query = """
-        UNWIND $data AS row
-        CALL {
-            WITH row
-            MATCH (n1:$category_1) $where1 
-            WITH n1
-            MATCH (n2:$category_2) $where2
-            CREATE (n1)-[r:$relation data[2]]->(n2)
-        } IN TRANSACTIONS
-        """
+        query = (
+        f'UNWIND $data AS row '
+        f'CALL {{ '
+        f'    WITH row '
+        f'    MATCH (n1: {category1["name"]}) {where_1} '
+        f'    WITH row, n1 '
+        f'    MATCH (n2: {category2["name"]}) {where_2} '
+        f'    CREATE (n1)-[r:{relation["name"]}]->(n2) '
+        f'    SET r = properties(row[2]) '
+        f'}} IN TRANSACTIONS'
+        )
 
         self._session.run(
-            query,
-            {
-                'data': linkValues,
-                'where1': where_1,
-                'where2': where_2
-            }
+            query, # type: ignore
+            data = linkValues
         )
 
     def _match_values(self, data, value_matcher):
