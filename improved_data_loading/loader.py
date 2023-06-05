@@ -71,7 +71,7 @@ class GraphLoader:
             raise Exception("If fieldnames is None then has_header must be True")
         
         # Open the file
-        with open(filename, 'r') as input_file:
+        with open(filename, 'r', encoding='utf-8-sig') as input_file:
             handle = len(self._loaded_data)
             data = []
             
