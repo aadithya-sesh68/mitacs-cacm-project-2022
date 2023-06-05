@@ -1,9 +1,33 @@
-import csv
+import utm
 
 from neo4j import GraphDatabase
 
+from loader import GraphLoader
+from loader import convert_if_not_null
+from loader import RowFunction
+
 # Change this to point to the directory of your database information
 DATABASE_INFO_FILEPATH = r"E:\Environmental Backcloth\dbinfo.txt"
+
+JUNCTION_FILE = 'data/junctions.csv'
+SEGMENT_FILE = '../data/streetsegments_new.csv'
+CRIME_FILE = '../data/vanc_crime_2022.csv'
+TRANSIT_FILE = '../data/transitstops.csv'
+
+ZONE_NUMBER = 10
+ZONE_LETTER = 'U'
+
+# Main Program
+
+def main():
+    driver = create_driver()
+    if not driver: return
+    
+    with driver.session() as session:
+        if not session: return
+        
+        load_data(session)
+    driver.close()
 
 # Database Setup
 
@@ -52,13 +76,236 @@ def create_driver():
     driver = GraphDatabase.driver(uri, auth=(user, password))
     return driver
 
-def main():
-    driver = create_driver()
-    if not driver: return
+# Data Loading
+
+def load_junctions(loader: GraphLoader):
+    junctionData = loader.load_file(
+        JUNCTION_FILE, 
+        {
+            'id': (int, "JunctionID"),
+            'type': (str, "JunctionType"),
+            'street_count': (int, "StreetIntersectCount"),
+            'vulnerability_score': (float, "Vulnerability"),
+            'longitude': float,
+            'latitude': float
+        }
+    )
     
-    with driver.session() as session:
-        if not session: return
-    driver.close()
+    junctions = loader.define_category(
+        "Junction",
+        junctionData,
+        [
+            'id',
+            'type',
+            'street_count'
+            'longitude',
+            'latitude',
+            'vulnerability_score',
+        ]
+    ),
+    
+    return junctionData, junctions
+
+def load_segments(loader: GraphLoader):
+    segmentData = loader.load_file(
+        SEGMENT_FILE, 
+        {
+            'id': (int, "StreetID"),
+            'hblock': str,
+            'type': (str, "StreetType"),
+            'property_count': (convert_if_not_null, "PropertyCount"),
+            'PseudoJunctionCount': int,
+            'pseudoJunctionID1': int,
+            'pseudoJunctionID2': int,
+            'adjustJunctionID1': int,
+            'adjustJunctionID2': int,
+            'adjustStreetID1': lambda v: convert_if_not_null(v, on_null=None),
+            'adjustStreetID2': lambda v: convert_if_not_null(v, on_null=None),
+            'current_land_val_avg': (convert_if_not_null, "Avg_CURRENT_LAND_VALUE"),
+            'current_land_val_sd': (convert_if_not_null, "SD_CURRENT_LAND_VALUE"),
+            'current_improvement_avg': (convert_if_not_null, "Avg_CURRENT_IMPROVEMENT_VALUE"),
+            'current_improvement_sd': (convert_if_not_null, "SD_CURRENT_IMPROVEMENT_VALUE"),
+            'Avg_ASSESSMENT_YEAR': convert_if_not_null,
+            'prev_land_val_avg': (convert_if_not_null, "Avg_PREVIOUS_LAND_VALUE"),
+            'prev_land_val_sd': (convert_if_not_null, "SD_PREVIOUS_LAND_VALUE"),
+            'prev_improv_val_avg': (convert_if_not_null, "Avg_PREVIOUS_IMPROVEMENT_VALUE"),
+            'prev_improv_val_sd': (convert_if_not_null, "SD_PREVIOUS_IMPROVEMENT_VALUE"),
+            'year_built_avg': (convert_if_not_null, "Avg_YEAR_BUILT"),
+            'year_built_sd': (convert_if_not_null, "SD_YEAR_BUILT"),
+            'big_improvement_yr_avg': (convert_if_not_null, "Avg_BIG_IMPROVEMENT_YEAR"),
+            'big_improvement_yr_sd': (convert_if_not_null, "SD_BIG_IMPROVEMENT_YEAR"),
+            'traffic_24_avg': (lambda v: convert_if_not_null(v, on_null=None), "Avg_ALL24"),
+            'traffic_8_9_avg': (lambda v: convert_if_not_null(v, on_null=None), "Avg_ALL8_9"),
+            'traffic_10_16_avg': (lambda v: convert_if_not_null(v, on_null=None), "Avg_ALL10_16"),
+            'traffic_17_18_avg': (lambda v: convert_if_not_null(v, on_null=None), "Avg_ALL17_18"),
+            'length_metres': (float, "Shape_Length"),
+            'latitude': float,
+            'longitude': float,
+            'land_uses': (lambda v: list(str.split(v, ', ')), "Landuse"),
+            'neighbors': RowFunction(lambda row, i: [
+                int(row[key]) for key in ["pseudoJunctionID1", "pseudoJunctionID2", "adjustJunctionID1", "adjustJunctionID2"]
+                if row[key] and int(row[key])
+            ])
+        }
+    )
+    
+    segments = loader.define_category(
+        "Segment",
+        segmentData,
+        [
+            'id',
+            'hblock',
+            'type',
+            'property_count',
+            'current_land_val_avg',
+            'current_land_val_sd',
+            'current_improvement_avg',
+            'current_improvement_sd',
+            'prev_land_val_avg',
+            'prev_land_val_sd',
+            'prev_improv_val_avg',
+            'prev_improv_val_sd',
+            'year_built_avg',
+            'year_built_sd',
+            'big_improvement_yr_avg',
+            'traffic_24_avg',
+            'traffic_8_9_avg',
+            'traffic_10_16_avg',
+            'traffic_17_18_avg',
+            'length_metres',
+            'latitude',
+            'longitude',
+            'land_uses'
+        ]
+    )
+    
+    return segmentData, segments
+
+def load_transit(loader: GraphLoader, segment_data):
+    transit_data = loader.load_file(
+        TRANSIT_FILE, 
+        {
+            'stop_id': int,
+            'stop_code': int,
+            'stop_name': str,
+            'zone_id': str,
+            'longitude': float,
+            'latitude': float
+        }
+    )
+    
+    loader.match_closest(
+        transit_data, segment_data, 
+        ['longitude', 'latitude'],
+        {
+            'closest': ('street_id', 'id'),
+            'distance': 'street_dst'
+        }
+    )
+    
+    transit = loader.define_category(
+        "Transit",
+        transit_data,
+        [
+            "stop_id",
+            "stop_code",
+            "stop_name",
+            "zone_id",
+            "longitude",
+            "latitude"
+        ]
+    )
+    
+    return transit_data, transit
+
+def load_crimes(loader: GraphLoader, junction_data):
+    crime_data = loader.load_file(
+        CRIME_FILE,
+        {
+            'crime_id': RowFunction(lambda row, i: i),
+            'type_of_crime': (str, 'TYPE'),
+            'data_of_crime': RowFunction(lambda row, i: f"{row['YEAR']}-{create_regular_str(row['MONTH'])}-{create_regular_str(row['DAY'])}"),
+            'time_of_crime': RowFunction(lambda row, i: f"{create_regular_str(row['HOUR'])}:{create_regular_str(row['MINUTE'])}"),
+            'hundred_block': (str, 'HUNDRED_BLOCK'),
+            'recency': (str, 'RECENCY'),
+            'latitude': RowFunction(lambda row, i: utm.to_latlon(float(row["X"]), float(row["Y"]), ZONE_NUMBER, ZONE_LETTER)[0]),
+            'longitude': RowFunction(lambda row, i: utm.to_latlon(float(row["X"]), float(row["Y"]), ZONE_NUMBER, ZONE_LETTER)[1]),
+        }
+    )
+    
+    loader.match_closest(
+        crime_data, junction_data, 
+        ['latitude', 'longitude'],
+        {
+            'closest': ('junction_id', 'id'),
+            'distance': 'junction_dst'
+        }
+    ),
+    
+    crimes = loader.define_category(
+        'Crime',
+        crime_data,
+        [
+            'crime_id',
+            'type_of_crime',
+            'date_of_crime',
+            'time_of_crime',
+            'hundred_block',
+            'recency',
+            'latitude',
+            'longitude'
+        ]
+    )
+    
+    return crime_data, crimes
+
+def load_data(session):
+    loader = GraphLoader(session)
+    
+    junction_data, junctions = load_junctions(loader)
+    print(loader._loaded_data)
+    # segment_data, segments = load_segments(loader)
+    # transit_data, transit = load_transit(loader, segment_data)
+    # crime_data, crimes = load_crimes(loader, junction_data)
+    
+    # continues_to = loader.define_relation(
+    #     "CONTINUES_TO",
+    #     segments,
+    #     junctions,
+    #     ("id", "neighbors", "id") 
+    # )
+    
+    # present_in = loader.define_relation(
+    #     'PRESENT_IN',
+    #     transit,
+    #     segments,
+    #     ('stop_id', 'street_id', 'id'),
+    #     props = ['stop_id', 'street_id', ('distance', 'street_dst')]
+    # )
+    
+    # nearest_crime_jn = loader.define_relation(
+    #     'NEAREST_CRIME_JN',
+    #     crimes,
+    #     junctions,
+    #     ('crime_id', 'junction_id', 'id'),
+    #     props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
+    # )
+    
+    # loader.write_category(junctions)
+    # loader.write_category(segments)
+    # loader.write_category(transit)
+    # loader.write_category(crimes)
+    
+    # loader.write_relation(continues_to)
+    # loader.write_relation(present_in)
+    # loader.write_relation(nearest_crime_jn)
+    
+# Helper functions
+def create_regular_str(old_str):
+    if not old_str.isnumeric(): return old_str
+    return old_str if int(old_str)>9 else "0"+old_str
+    
+# Start the program
       
 if __name__ == "__main__":
     main()
