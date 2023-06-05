@@ -99,12 +99,31 @@ class GraphLoader:
             return handle
         
     def process_data(self, data_handle, func: Callable[[Row], None]):
+        """ Run a function on every row in the data
+        
+        Used for setting more advanced fields that cannot be set in the initial loading
+
+        Args:
+            data_handle (DataHandle): The data to process
+            func (Callable[[Row], None]): The function to run on every row
+        """
         data = self._loaded_data[data_handle]
         for row in data:
             func(row)
         
     def cross_data(self, data_handle_1: DataHandle, data_handle_2: DataHandle, func: Callable[[Row, Row], None]):
+        """ Run a function on the cross product of two data sets
         
+        WARNING: Creates a cross product between the two data sets. May run slowly for large datasets.
+        
+        Useful for computing something based on the combination of two data sets. eg. matching nodes
+        [func] will receive every combination of pairs of rows with 1 row from data set 1 and 1 row from data set 2
+
+        Args:
+            data_handle_1 (DataHandle): The first data set
+            data_handle_2 (DataHandle): The second data set
+            func (Callable[[Row, Row], None]): The function to run on the cross product of the data sets
+        """
         data_1 = self._loaded_data[data_handle_1]
         data_2 = self._loaded_data[data_handle_2]
         for row_1 in data_1:
@@ -133,7 +152,7 @@ class GraphLoader:
         data_2 = self._loaded_data[data_handle_2]
         
         # Match for each node in data set 1
-        for row_1 in data_1:
+        for i, row_1 in enumerate(data_1):
             closest = None
             b_dist = float('inf')
             
@@ -146,7 +165,7 @@ class GraphLoader:
                     if type(key) == tuple:
                         diff = row_1[key[0]] - row_2[key[1]]
                     else:
-                        diff = row_1[key] - row_2[key[2]]
+                        diff = row_1[key] - row_2[key]
                     distance += abs(diff)
                     
                 # Update the closest node
@@ -161,32 +180,65 @@ class GraphLoader:
                    row_1[match_name] = closest[match_field]
                 if "distance" in result_fieldnames:
                     row_1[result_fieldnames["distance"]] = b_dist
+            if i % 100 == 0:
+                print(f"\r    Matched {i} nodes. {(i / len(data_1)):.0%} {' ' * 10}", end='')
+        print()
         
-    def define_category(self, category_name, data_handle, value_matcher):
-            handle = len(self._categories)
-            self._categories.append({
-                 "name": category_name,
-                 "data_handle": data_handle,
-                 "value_matcher": value_matcher.copy()
-            })
-            return handle
+    def define_category(self, category_name: str, data_handle: DataHandle, value_matcher: list[str | tuple[str, str]]) -> CategoryHandle:
+        """ Define a category of nodes
+
+        Args:
+            category_name (str): The name of the category to use in Neo4j
+            data_handle (DataHandle): The data used for the node
+            value_matcher (list[str | tuple[str, str]]): The fieldnames to use as the properties for the nodes
+
+        Returns:
+            CategoryHandle: A handle for the category
+        """
+        handle = len(self._categories)
+        self._categories.append({
+                "name": category_name,
+                "data_handle": data_handle,
+                "value_matcher": value_matcher.copy()
+        })
+        return handle
     
-    def define_relation(self, relation_name, category_1, category_2, links, props=None):
-         handle = len(self._relations)
-         self._relations.append({
+    def define_relation(self, relation_name: str, category_1: CategoryHandle, category_2: CategoryHandle, links: tuple[str, str, str], props: None | list[str | tuple[str, str]]=None) -> RelationshipHandle:
+        """ Define a relationship between nodes
+
+        Args:
+            relation_name (str): The name of the relationship to use in Neo4j
+            category_1 (CategoryHandle): The category that the relationship comes from
+            category_2 (CategoryHandle): The category that the relationship goes to
+            links (tuple[str, str, str]): The link between categorys. (primary key for category_1, link to category_2, primary key for category_2)
+            props (list[str | tuple[str, str]], optional): The fieldnames to use for the relationship properties. Defaults to list[str  |  tuple[str, str]].
+
+        Returns:
+            RelationshipHandle: A handle to the relationship
+        """
+        handle = len(self._relations)
+        self._relations.append({
             "name": relation_name,
             "category_1": category_1,
             "category_2": category_2,
             "links": links,
             "props": props if props else []
-         })
-         return handle
+        })
+        return handle
     
-    def write_category(self, category_handle):
+    def write_category(self, category_handle: CategoryHandle):
+        """ Write a category to Neo4j
+
+        Args:
+            category_handle (CategoryHandle): The category to write
+        """
+        
         category = self._categories[category_handle]
         data = self._loaded_data[category["data_handle"]]
         value_matcher = category["value_matcher"]
-        properties = self._match_values(data, value_matcher)
+        
+        # Get a list of the properties for the nodes
+        properties = self._match_properties(data, value_matcher)
 
         # Should be a literal string, not an f-string but this was the only way I could find to set the category
         query = (
@@ -204,35 +256,46 @@ class GraphLoader:
             properties = properties
         )
 
-    def write_relation(self, relation_handle):
+    def write_relation(self, relation_handle: RelationshipHandle, batch_size=1000):
+        """ Write a relationship to Neo4j
+
+        Args:
+            relation_handle (RelationshipHandle): The relationship to write
+            batch_size (int, optional): A number of nodes to write the connection for at once. Defaults to 1000.
+        """
         relation = self._relations[relation_handle]
         category1 = self._categories[relation["category_1"]]
         category2 = self._categories[relation["category_2"]]
-        data_1 = self._loaded_data[category1["data_handle"]]
-        data_2 = self._loaded_data[category2["data_handle"]]
+        data = self._loaded_data[category1["data_handle"]]
         links = relation["links"]
         props = relation["props"]
         
-        if len(data_1) == 0 or len(data_2) == 0: return
+        # There is no point running the query if there is no data to write
+        if len(data) == 0: return
         
         data_1_key, data_match, data_2_key = links
 
-        linkValues = [ 
+        # Create the links between categories
+        link_values = [ 
              [
-                row[data_1_key],
-                row[data_match],
+                row[data_1_key],    # id for category 1
+                row[data_match],    # id for category 2
+                
+                # Relationship properties
                 { 
                  (prop[0] if type(prop) == tuple else prop): (row[prop[1]] if type(prop) == tuple else row[prop]) for prop in props 
                 }
              ]
-             for row in data_1
+             for row in data
         ]
 
+        # Create the where clauses for the query
+        compare = "IN" if type(data[0][data_match]) == list else "="
         where_1 = f"WHERE n1.{data_1_key} = row[0]"
-        
-        compare = "IN" if type(data_1[0][data_match]) == list else "="
         where_2 = f"WHERE n2.{data_2_key} {compare} row[1]"
 
+        # Create the query
+        # Should be a literal string, not an f-string but this was the only way I could find to set the category
         query = (
         f'UNWIND $data AS row '
         f'CALL {{ '
@@ -245,14 +308,49 @@ class GraphLoader:
         f'}} IN TRANSACTIONS'
         )
 
+        # Run the query for each batch
+        for batch in range(0, len(link_values), batch_size):
+            sub_link_values = link_values[batch:batch + batch_size]
+            self._session.run(
+                query, # type: ignore
+                data = sub_link_values
+            )
+            
+            # Update the progress information
+            print(f"\rWriting {relation['name']} {((batch + len(sub_link_values)) / len(link_values)):.0%}" + (" " * 10), end='')
+        print()
+        
+    def clear_all(self):
+        """ Delete all nodes and relationships from the Neo4j database
+        """
+        print("Clearing all data")
+        
+        # It's a complicated query to avoid running out of memory for large databases
         self._session.run(
-            query, # type: ignore
-            data = linkValues
+            '''
+            MATCH (n)
+            CALL {
+                WITH n
+                DETACH DELETE n
+            } IN TRANSACTIONS
+            '''
         )
 
-    def _match_values(self, data, value_matcher):
+    def _match_properties(self, data: list[dict[str, Any]], properties: list[str  | tuple[str, str]]) -> list[dict[str, Any]]:
+        """ Get a list of rows of properties from rows of data
+
+        Args:
+            data (list[dict[str, Any]]): The data to select part of
+            properties (list[str   |  tuple[str, str]]): The properties to select
+
+        Returns:
+            list[dict[str, Any]]: The properties for each node
+        """
+        
+        # Each property key can either be a string or it can be a tuple of two strings in which case the first string is used as the 
+        # resulting property name while the first is used as the key for accessing the original data
         return [
-            { key: row[key] for key in value_matcher }
+            { prop[0] if type(prop) == tuple else prop: row[prop[1] if type(prop) == tuple else prop] for prop in properties } # type: ignore
             for row in data
         ]
         
@@ -265,6 +363,7 @@ class GraphLoader:
         Returns:
             dict[str, IndexedConversionFunction]: The fixed conversion map
         """
+        
         result = {}
         for key in conversions:
             # The conversion is (function, key_in)

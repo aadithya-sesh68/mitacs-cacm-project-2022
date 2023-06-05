@@ -17,7 +17,7 @@ TRANSIT_FILE = '../data/transitstops.csv'
 ZONE_NUMBER = 10
 ZONE_LETTER = 'U'
 
-# Main Program
+## Main Program ##
 
 def main():
     driver = create_driver()
@@ -29,7 +29,7 @@ def main():
         load_data(session)
     driver.close()
 
-# Database Setup
+## Database Setup ##
 
 def load_db_info(filepath):
     """ Load database access information from a file
@@ -76,7 +76,7 @@ def create_driver():
     driver = GraphDatabase.driver(uri, auth=(user, password))
     return driver
 
-# Data Loading
+## Data Loading ##
 
 def load_junctions(loader: GraphLoader):
     print("Loading Junctions")
@@ -94,7 +94,7 @@ def load_junctions(loader: GraphLoader):
     )
     
     junctions = loader.define_category(
-        "Junction_0",
+        "Junction",
         junctionData,
         [
             'id',
@@ -154,7 +154,7 @@ def load_segments(loader: GraphLoader):
     )
     
     segments = loader.define_category(
-        "Segment_0",
+        "Segment",
         segmentData,
         [
             'id',
@@ -197,8 +197,8 @@ def load_transit(loader: GraphLoader, segment_data):
             'stop_code': int,
             'stop_name': str,
             'zone_id': str,
-            'longitude': float,
-            'latitude': float
+            'longitude': (float, 'stop_lat'),
+            'latitude': (float, 'stop_lat')
         }
     )
     
@@ -212,7 +212,7 @@ def load_transit(loader: GraphLoader, segment_data):
     )
     
     transit = loader.define_category(
-        "Transit_0",
+        "Transit",
         transit_data,
         [
             "stop_id",
@@ -233,9 +233,9 @@ def load_crimes(loader: GraphLoader, junction_data):
     crime_data = loader.load_file(
         CRIME_FILE,
         {
-            'crime_id': RowFunction(lambda row, i: i),
+            'crime_id': RowFunction(lambda row, i: i + 1),
             'type_of_crime': (str, 'TYPE'),
-            'data_of_crime': RowFunction(lambda row, i: f"{row['YEAR']}-{create_regular_str(row['MONTH'])}-{create_regular_str(row['DAY'])}"),
+            'date_of_crime': RowFunction(lambda row, i: f"{row['YEAR']}-{create_regular_str(row['MONTH'])}-{create_regular_str(row['DAY'])}"),
             'time_of_crime': RowFunction(lambda row, i: f"{create_regular_str(row['HOUR'])}:{create_regular_str(row['MINUTE'])}"),
             'hundred_block': (str, 'HUNDRED_BLOCK'),
             'recency': (str, 'RECENCY'),
@@ -254,7 +254,7 @@ def load_crimes(loader: GraphLoader, junction_data):
     ),
     
     crimes = loader.define_category(
-        'Crime_0',
+        'Crime',
         crime_data,
         [
             'crime_id',
@@ -277,31 +277,33 @@ def load_data(session):
     print("Loading Data")
     junction_data, junctions = load_junctions(loader)
     segment_data, segments = load_segments(loader)
-    # transit_data, transit = load_transit(loader, segment_data)
-    # crime_data, crimes = load_crimes(loader, junction_data)
+    transit_data, transit = load_transit(loader, segment_data)
+    crime_data, crimes = load_crimes(loader, junction_data)
     
     continues_to = loader.define_relation(
-        "CONTINUES_TO_0",
+        "CONTINUES_TO",
         segments,
         junctions,
         ("id", "neighbors", "id") 
     )
     
-    # present_in = loader.define_relation(
-    #     'PRESENT_IN_0',
-    #     transit,
-    #     segments,
-    #     ('stop_id', 'street_id', 'id'),
-    #     props = ['stop_id', 'street_id', ('distance', 'street_dst')]
-    # )
+    present_in = loader.define_relation(
+        'PRESENT_IN',
+        transit,
+        segments,
+        ('stop_id', 'street_id', 'id'),
+        props = ['stop_id', 'street_id', ('distance', 'street_dst')]
+    )
     
-    # nearest_crime_jn = loader.define_relation(
-    #     'NEAREST_CRIME_JN_0',
-    #     crimes,
-    #     junctions,
-    #     ('crime_id', 'junction_id', 'id'),
-    #     props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
-    # )
+    nearest_crime_jn = loader.define_relation(
+        'NEAREST_CRIME_JN',
+        crimes,
+        junctions,
+        ('crime_id', 'junction_id', 'id'),
+        props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
+    )
+    
+    loader.clear_all()
     
     print("Writing Data")
     loader.write_category(junctions)
@@ -310,22 +312,35 @@ def load_data(session):
     loader.write_category(segments)
     print("Wrote Segments")
     
-    # loader.write_category(transit)    
-    # print("Wrote Transit")
+    loader.write_category(transit)    
+    print("Wrote Transit")
     
-    # loader.write_category(crimes)
-    # print("Wrote Crimes")
+    loader.write_category(crimes)
+    print("Wrote Crimes")
     
     loader.write_relation(continues_to)
-    # loader.write_relation(present_in)
-    # loader.write_relation(nearest_crime_jn)
+    loader.write_relation(present_in)
+    loader.write_relation(nearest_crime_jn)
     
-# Helper functions
+    session.run(
+        '''
+        MATCH (s:Segment)
+        CALL {
+            WITH s
+            MATCH (j1:Junction)<-[:CONTINUES_TO]-(s)-[:CONTINUES_TO]->(j2:Junction)
+            WITH j1, j2, s LIMIT 1
+            CREATE (j1)-[c:CONNECTS_TO]->(j2)
+            SET c = properties(s)
+        } IN TRANSACTIONS
+        '''
+    )
+    
+## Helper functions ##
+
 def create_regular_str(old_str):
     if not old_str.isnumeric(): return old_str
     return old_str if int(old_str)>9 else "0"+old_str
     
 # Start the program
-      
 if __name__ == "__main__":
     main()
