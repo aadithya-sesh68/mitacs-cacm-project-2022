@@ -13,6 +13,7 @@ JUNCTION_FILE = '../data/junctions.csv'
 SEGMENT_FILE = '../data/streetsegments_new.csv'
 CRIME_FILE = '../data/vanc_crime_2022.csv'
 TRANSIT_FILE = '../data/transitstops.csv'
+COMMERCIAL_FILE = '../data/storefronts-inventory.csv'
 
 ZONE_NUMBER = 10
 ZONE_LETTER = 'U'
@@ -271,69 +272,126 @@ def load_crimes(loader: GraphLoader, junction_data):
     print("Loaded Crimes")
     return crime_data, crimes
 
+def load_stores(loader: GraphLoader, junction_data):
+    print("Loading Stores")
+    stores_data = loader.load_file(
+        COMMERCIAL_FILE,
+        {
+            'id': (int, 'ID'),
+            'unit': (str, 'Unit'),
+            'civic_number': (int, 'Civic number - Parcel'),
+            'street_name': (str, 'Street name - Parcel'),
+            'name': (str, 'Business name'),
+            'category': (str, 'Retail category'),
+            'latitude': (lambda v: float(v.split(', ')[0]), 'geo_point_2d'),
+            'longitude': (lambda v: float(v.split(', ')[1]), 'geo_point_2d'),
+        },
+        delimiter=';'
+    )
+    
+    loader.match_closest(
+        stores_data, junction_data,
+        ['latitude', 'longitude'],
+        {
+            'closest': ('junction_id', 'id'),
+            'distance': 'junction_dst'
+        }
+    )
+    
+    stores = loader.define_category(
+        "Store",
+        stores_data,
+        [
+            'id',
+            'name',
+            'category',
+            'unit',
+            'civic_number',
+            'street_name',
+            'latitude',
+            'longitude'
+        ]
+    )
+    
+    print("Loaded Stores")
+    return stores_data, stores
+
 def load_data(session):
     loader = GraphLoader(session)
     
     print("Loading Data")
     junction_data, junctions = load_junctions(loader)
-    segment_data, segments = load_segments(loader)
-    transit_data, transit = load_transit(loader, segment_data)
-    crime_data, crimes = load_crimes(loader, junction_data)
+    # segment_data, segments = load_segments(loader)
+    # transit_data, transit = load_transit(loader, segment_data)
+    # crime_data, crimes = load_crimes(loader, junction_data)
+    stores_data, stores = load_stores(loader, junction_data)
     
-    continues_to = loader.define_relation(
-        "CONTINUES_TO",
-        segments,
+    # continues_to = loader.define_relation(
+    #     "CONTINUES_TO",
+    #     segments,
+    #     junctions,
+    #     ("id", "neighbors", "id") 
+    # )
+    
+    # present_in = loader.define_relation(
+    #     'PRESENT_IN',
+    #     transit,
+    #     segments,
+    #     ('stop_id', 'street_id', 'id'),
+    #     props = ['stop_id', 'street_id', ('distance', 'street_dst')]
+    # )
+    
+    # nearest_crime_jn = loader.define_relation(
+    #     'NEAREST_CRIME_JN',
+    #     crimes,
+    #     junctions,
+    #     ('crime_id', 'junction_id', 'id'),
+    #     props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
+    # )
+    
+    nearest_store_jn = loader.define_relation(
+        'NEAREST_JN',
+        stores,
         junctions,
-        ("id", "neighbors", "id") 
+        ('id', 'junction_id', 'id'),
+        props = [('store_id', 'id'), 'junction_id', ('distance', 'junction_dst')]
     )
     
-    present_in = loader.define_relation(
-        'PRESENT_IN',
-        transit,
-        segments,
-        ('stop_id', 'street_id', 'id'),
-        props = ['stop_id', 'street_id', ('distance', 'street_dst')]
-    )
+    # loader.clear_all()
     
-    nearest_crime_jn = loader.define_relation(
-        'NEAREST_CRIME_JN',
-        crimes,
-        junctions,
-        ('crime_id', 'junction_id', 'id'),
-        props = ['crime_id', 'junction_id', ('distance', 'junction_dst')]
-    )
+    # print("Writing Data")
+    # loader.write_category(junctions)
+    # print("Wrote Junctions")
     
-    loader.clear_all()
+    # loader.write_category(segments)
+    # print("Wrote Segments")
     
-    print("Writing Data")
-    loader.write_category(junctions)
-    print("Wrote Junctions")
+    # loader.write_category(transit)    
+    # print("Wrote Transit")
     
-    loader.write_category(segments)
-    print("Wrote Segments")
+    # loader.write_category(crimes)
+    # print("Wrote Crimes")
     
-    loader.write_category(transit)    
-    print("Wrote Transit")
+    loader.write_category(stores)
+    print("Wrote Stores")
     
-    loader.write_category(crimes)
-    print("Wrote Crimes")
+    # loader.write_relation(continues_to)
+    # loader.write_relation(present_in)
+    # loader.write_relation(nearest_crime_jn)
+    loader.write_relation(nearest_store_jn)
     
-    loader.write_relation(continues_to)
-    loader.write_relation(present_in)
-    loader.write_relation(nearest_crime_jn)
-    
-    session.run(
-        '''
-        MATCH (s:Segment)
-        CALL {
-            WITH s
-            MATCH (j1:Junction)<-[:CONTINUES_TO]-(s)-[:CONTINUES_TO]->(j2:Junction)
-            WITH j1, j2, s LIMIT 1
-            CREATE (j1)-[c:CONNECTS_TO]->(j2)
-            SET c = properties(s)
-        } IN TRANSACTIONS
-        '''
-    )
+    # session.run(
+    #     '''
+    #     MATCH (s:Segment)
+    #     CALL {
+    #         WITH s
+    #         MATCH (j1:Junction)<-[:CONTINUES_TO]-(s)-[:CONTINUES_TO]->(j2:Junction)
+    #         WITH j1, j2, s LIMIT 1
+    #         CREATE (j1)-[c:CONNECTS_TO]->(j2)
+    #         SET c = properties(s)
+    #     } IN TRANSACTIONS
+    #     '''
+    # )
     
 ## Helper functions ##
 
