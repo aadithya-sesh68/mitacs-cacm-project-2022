@@ -13,7 +13,7 @@ JUNCTION_FILE = '../data/junctions.csv'
 SEGMENT_FILE = '../data/streetsegments_new.csv'
 CRIME_FILE = '../data/vanc_crime_2022.csv'
 TRANSIT_FILE = '../data/transitstops.csv'
-COMMERCIAL_FILE = '../data/storefronts-inventory.csv'
+COMMERCIAL_FILE = '../data/storefronts-inventory_new.csv'
 
 ZONE_NUMBER = 10
 ZONE_LETTER = 'U'
@@ -285,8 +285,7 @@ def load_stores(loader: GraphLoader, junction_data):
             'category': (str, 'Retail category'),
             'latitude': (lambda v: float(v.split(', ')[0]), 'geo_point_2d'),
             'longitude': (lambda v: float(v.split(', ')[1]), 'geo_point_2d'),
-        },
-        delimiter=';'
+        }
     )
     
     loader.match_closest(
